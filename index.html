@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CV Markdown Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>CV Markdown Studio</h1>
+      <p>AI-powered resume and CV drafting, tailoring, and export.</p>
+    </header>
+
+    <main class="layout" id="resizable-layout">
+      <section class="panel editor-panel">
+        <div class="panel-head">
+          <h2>Editor</h2>
+          <div class="actions">
+            <div class="tab-group" role="tablist" aria-label="Editor views">
+              <button class="tab-btn active" data-tab="markdown" type="button">Markdown</button>
+              <button class="tab-btn" data-tab="html" type="button">HTML</button>
+              <button class="tab-btn" data-tab="css" type="button">CSS</button>
+            </div>
+            <button id="load-template-btn" class="btn ghost">Load Sample CV</button>
+            <button id="clear-btn" class="btn ghost">Clear</button>
+          </div>
+        </div>
+        <div class="editor-stack">
+          <div id="editor-md" class="editor-surface" data-editor="markdown"></div>
+          <div id="editor-html" class="editor-surface hidden" data-editor="html"></div>
+          <div id="editor-css" class="editor-surface hidden" data-editor="css"></div>
+        </div>
+      </section>
+
+      <div class="resize-handle" data-handle="left" aria-hidden="true"></div>
+
+      <section class="panel preview-panel">
+        <div class="panel-head">
+          <h2>Preview</h2>
+          <div class="actions">
+            <button id="copy-md-btn" class="btn ghost">Copy Markdown</button>
+            <button id="export-pdf-btn" class="btn primary">Export PDF</button>
+          </div>
+        </div>
+        <article id="preview" class="preview"></article>
+      </section>
+
+      <div class="resize-handle" data-handle="right" aria-hidden="true"></div>
+
+      <section class="panel chat-panel">
+        <div class="panel-head">
+          <h2>Chat Agent</h2>
+          <div class="actions">
+            <span class="badge">Resume Domain</span>
+            <button id="open-settings-btn" class="btn ghost" type="button">Settings</button>
+          </div>
+        </div>
+
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+
+        <form id="chat-form" class="chat-form">
+          <textarea
+            id="chat-input"
+            placeholder="Ask me to create a CV from scratch, tailor your existing CV for a job, or fix sections."
+            rows="3"
+            required
+          ></textarea>
+          <button type="submit" class="btn primary">Send</button>
+        </form>
+      </section>
+    </main>
+
+    <div id="settings-modal" class="settings-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="settings-card">
+        <div class="settings-head">
+          <h3 id="settings-title">Settings</h3>
+          <div class="actions">
+            <button id="close-settings-btn" class="btn ghost" type="button">Close</button>
+          </div>
+        </div>
+        <div class="settings-body">
+          <div class="api-key-row">
+            <label for="api-key-input">OpenAI API Key</label>
+            <input id="api-key-input" type="password" placeholder="sk-..." autocomplete="off" />
+            <button id="save-key-btn" class="btn ghost" type="button">Save Key</button>
+            <span id="key-status" class="key-status">Not saved</span>
+          </div>
+
+          <div class="master-data-row">
+            <label for="master-data-input">Master Data Context</label>
+            <textarea
+              id="master-data-input"
+              rows="5"
+              placeholder="Paste your reusable master data: personal details, summary, experience, education, projects, skills, achievements, certifications, and preferences."
+            ></textarea>
+            <div class="actions">
+              <button id="save-master-data-btn" class="btn ghost" type="button">Save Context</button>
+              <button id="clear-master-data-btn" class="btn ghost" type="button">Clear Context</button>
+            </div>
+            <span id="master-data-status" class="key-status">No context saved</span>
+          </div>
+
+          <div class="upload-row">
+            <label for="cv-upload-input">Upload CV (.md)</label>
+            <input id="cv-upload-input" type="file" accept=".md,text/markdown" />
+            <span class="helper-text">Upload a markdown CV to load it into the editor.</span>
+          </div>
+
+          <div class="upload-row">
+            <label for="involvement-level">Human Involvement Level</label>
+            <select id="involvement-level" class="select-input">
+              <option value="low">Low (auto-apply)</option>
+              <option value="medium" selected>Medium (confirm diff)</option>
+              <option value="high">High (step-by-step)</option>
+            </select>
+            <span class="helper-text">Control how much review you want before changes are applied.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="diff-modal" class="diff-modal hidden" role="dialog" aria-modal="true" aria-labelledby="diff-title">
+      <div class="diff-card">
+        <div class="diff-head">
+          <h3 id="diff-title">Proposed Markdown Diff</h3>
+          <div class="actions">
+            <button id="reject-diff-btn" class="btn ghost" type="button">Reject</button>
+            <button id="accept-diff-btn" class="btn primary">Accept</button>
+          </div>
+        </div>
+        <pre id="diff-output" class="diff-output"></pre>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
