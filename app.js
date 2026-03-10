@@ -25,6 +25,7 @@ const rejectDiffBtn = document.getElementById('reject-diff-btn');
 const layoutEl = document.getElementById('resizable-layout');
 const settingsModalEl = document.getElementById('settings-modal');
 const openSettingsBtn = document.getElementById('open-settings-btn');
+const toastStackEl = document.getElementById('toast-stack');
 const closeSettingsBtn = document.getElementById('close-settings-btn');
 const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
 
@@ -72,6 +73,8 @@ const state = {
   involvement: 'medium',
   stepQueue: [],
   stepIndex: 0,
+  highModeActive: false,
+  lastUserRequest: '',
 };
 
 const previewHost = document.createElement('div');
@@ -161,13 +164,27 @@ function pushMessage(role, text, extraClass = '') {
   return div;
 }
 
+function showToast(message, tone = 'info', timeout = 3200) {
+  if (!toastStackEl) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + tone;
+  toast.textContent = message;
+  toastStackEl.appendChild(toast);
+  const removeToast = () => {
+    if (toast.parentNode) {
+      toast.parentNode.removeChild(toast);
+    }
+  };
+  window.setTimeout(removeToast, timeout);
+}
+
 function scrollChatToBottom() {
   chatLogEl.scrollTop = chatLogEl.scrollHeight;
 }
 
-function startThinking() {
+function startThinking(text = 'Starting analysis and tailoring stream...') {
   state.isLoading = true;
-  return pushMessage('assistant', 'Starting analysis and tailoring stream...', 'thinking');
+  return pushMessage('assistant', text, 'thinking');
 }
 
 function finishThinking(el) {
@@ -209,13 +226,13 @@ function saveApiKey() {
   if (!key) {
     localStorage.removeItem(storageKeys.apiKey);
     setKeyStatus();
-    pushMessage('assistant', 'Cleared API key from local storage.');
+    showToast('Cleared API key from local storage.', 'warn');
     return;
   }
 
   localStorage.setItem(storageKeys.apiKey, key);
   setKeyStatus();
-  pushMessage('assistant', 'API key saved locally in your browser for this app.');
+  showToast('API key saved locally in your browser for this app.', 'success');
 }
 
 function saveMasterData() {
@@ -223,20 +240,20 @@ function saveMasterData() {
   if (!value) {
     localStorage.removeItem(storageKeys.masterData);
     setMasterDataStatus();
-    pushMessage('assistant', 'Master data context cleared.');
+    showToast('Master data context cleared.', 'warn');
     return;
   }
 
   localStorage.setItem(storageKeys.masterData, value);
   setMasterDataStatus();
-  pushMessage('assistant', 'Master data context saved. I will use it as background for CV generation and edits.');
+  showToast('Master data context saved. I will use it as background for CV generation and edits.', 'success');
 }
 
 function clearMasterData() {
   masterDataInputEl.value = '';
   localStorage.removeItem(storageKeys.masterData);
   setMasterDataStatus();
-  pushMessage('assistant', 'Master data context cleared.');
+  showToast('Master data context cleared.', 'warn');
 }
 
 function getMasterData() {
@@ -345,13 +362,13 @@ function closeSettingsModal() {
 function openPrintWindow() {
   const mdText = mdEditor ? mdEditor.getValue() : '';
   if (!mdText.trim()) {
-    pushMessage('assistant', 'Add content first, then print the CV.');
+    showToast('Add content first, then print the CV.', 'warn');
     return;
   }
 
   const printWindow = window.open('', '_blank', 'width=900,height=700');
   if (!printWindow) {
-    pushMessage('assistant', 'Popup blocked. Please allow popups to print.');
+    showToast('Popup blocked. Please allow popups to print.', 'error');
     return;
   }
 
@@ -385,73 +402,6 @@ function applyChanges(markdown, cssText) {
   renderMarkdown();
 }
 
-function buildStepQueue(currentMarkdown, nextMarkdown) {
-  const currentLines = currentMarkdown.split('\n');
-  const nextLines = nextMarkdown.split('\n');
-  const steps = [];
-
-  const maxLines = Math.max(currentLines.length, nextLines.length);
-  for (let i = 0; i < maxLines; i += 1) {
-    const beforeLine = currentLines[i];
-    const afterLine = nextLines[i];
-    if (beforeLine === afterLine) continue;
-
-    const before = currentLines.slice();
-    const after = currentLines.slice();
-    if (typeof afterLine === 'undefined') {
-      after.splice(i, 1);
-    } else if (typeof beforeLine === 'undefined') {
-      after.splice(i, 0, afterLine);
-    } else {
-      after[i] = afterLine;
-    }
-
-    steps.push({
-      description: `Update line ${i + 1}.`,
-      before: before.join('\n'),
-      after: after.join('\n'),
-    });
-  }
-
-  if (!steps.length) {
-    steps.push({
-      description: 'No line-level changes detected. Applying full update.',
-      before: currentMarkdown,
-      after: nextMarkdown,
-    });
-  }
-
-  return steps;
-}
-
-function presentStep(step) {
-  pushMessage('assistant', `Step ${state.stepIndex + 1}: ${step.description}`);
-  state.pendingChange = {
-    assistantMessage: step.description,
-    currentMarkdown: step.before,
-    proposedMarkdown: step.after,
-  };
-  renderDiff(step.before, step.after);
-  openDiffModal();
-}
-
-function handleHighInvolvement(currentMarkdown, proposedMarkdown) {
-  state.stepQueue = buildStepQueue(currentMarkdown, proposedMarkdown);
-  state.stepIndex = 0;
-  presentStep(state.stepQueue[state.stepIndex]);
-}
-
-function continueHighInvolvement() {
-  if (state.stepIndex < state.stepQueue.length - 1) {
-    state.stepIndex += 1;
-    presentStep(state.stepQueue[state.stepIndex]);
-  } else {
-    state.stepQueue = [];
-    state.stepIndex = 0;
-    pushMessage('assistant', 'All steps completed.');
-  }
-}
-
 function stageChange({ assistantMessage, currentMarkdown, proposedMarkdown, cssText }) {
   if (state.involvement === 'low') {
     applyChanges(proposedMarkdown, cssText);
@@ -460,7 +410,15 @@ function stageChange({ assistantMessage, currentMarkdown, proposedMarkdown, cssT
   }
 
   if (state.involvement === 'high') {
-    handleHighInvolvement(currentMarkdown, proposedMarkdown);
+    state.pendingChange = {
+      assistantMessage,
+      currentMarkdown,
+      proposedMarkdown,
+      cssText,
+    };
+    renderDiff(currentMarkdown, proposedMarkdown);
+    openDiffModal();
+    pushMessage('assistant', assistantMessage || 'Patch ready. Review and accept to continue.');
     return;
   }
 
@@ -468,6 +426,7 @@ function stageChange({ assistantMessage, currentMarkdown, proposedMarkdown, cssT
     assistantMessage,
     currentMarkdown,
     proposedMarkdown,
+    cssText,
   };
 
   renderDiff(currentMarkdown, proposedMarkdown);
@@ -479,14 +438,14 @@ function acceptPendingChange() {
   if (!state.pendingChange) return;
 
   const pending = state.pendingChange;
-  applyChanges(pending.proposedMarkdown, cssEditor ? cssEditor.getValue() : '');
+  applyChanges(pending.proposedMarkdown, pending.cssText || '');
   pushMessage('assistant', 'Accepted. The proposed changes are now applied to your CV.');
 
   state.pendingChange = null;
   closeDiffModal();
 
-  if (state.involvement === 'high') {
-    continueHighInvolvement();
+  if (state.involvement === 'high' && state.highModeActive) {
+    requestNextPatch();
   }
 }
 
@@ -499,8 +458,8 @@ function rejectPendingChange() {
   state.pendingChange = null;
   closeDiffModal();
 
-  if (state.involvement === 'high') {
-    continueHighInvolvement();
+  if (state.involvement === 'high' && state.highModeActive) {
+    requestNextPatch();
   }
 }
 
@@ -609,11 +568,155 @@ async function callBackendStream(userMessage, onToken) {
   return donePayload;
 }
 
+async function callPatchEndpoint() {
+  const apiKey = (apiKeyInputEl.value || localStorage.getItem(storageKeys.apiKey) || '').trim();
+
+  if (!apiKey) {
+    throw new Error('Add your OpenAI API key first, then send your request.');
+  }
+
+  const response = await fetch('/api/chat/patch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      apiKey,
+      message: state.lastUserRequest,
+      markdown: mdEditor ? mdEditor.getValue() : '',
+      html: htmlEditor ? htmlEditor.getValue() : '',
+      css: cssEditor ? cssEditor.getValue() : '',
+      history: state.history,
+      masterData: getMasterData(),
+      model: state.model,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || 'Patch request failed.');
+  }
+
+  return data;
+}
+
+function applyPatchToText(original, patchText) {
+  if (!patchText || !patchText.trim()) return original;
+
+  const lines = patchText.split('\n');
+  if (!lines.some((line) => line.startsWith('@@'))) {
+    return original;
+  }
+
+  const originalLines = original.split('\n');
+  let addCount = 0;
+  let delCount = 0;
+  for (const line of lines) {
+    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) {
+      continue;
+    }
+    if (line.startsWith('+')) addCount += 1;
+    if (line.startsWith('-')) delCount += 1;
+  }
+
+  const totalChange = addCount + delCount;
+  const maxAllowed = Math.max(40, Math.floor(originalLines.length * 0.4));
+  if (totalChange > maxAllowed) {
+    return original;
+  }
+
+  const result = [];
+  let originalIndex = 0;
+  let i = 0;
+
+  while (i < lines.length) {
+    const header = lines[i];
+    if (!header.startsWith('@@')) {
+      i += 1;
+      continue;
+    }
+
+    const match = header.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    if (!match) {
+      i += 1;
+      continue;
+    }
+
+    const oldStart = Number.parseInt(match[1], 10) - 1;
+
+    while (originalIndex < oldStart && originalIndex < originalLines.length) {
+      result.push(originalLines[originalIndex]);
+      originalIndex += 1;
+    }
+
+    i += 1;
+    while (i < lines.length && !lines[i].startsWith('@@')) {
+      const line = lines[i];
+      if (line.startsWith(' ')) {
+        result.push(line.slice(1));
+        originalIndex += 1;
+      } else if (line.startsWith('-')) {
+        originalIndex += 1;
+      } else if (line.startsWith('+')) {
+        result.push(line.slice(1));
+      } else if (!line.startsWith('\\')) {
+        result.push(line);
+        originalIndex += 1;
+      }
+      i += 1;
+    }
+  }
+
+  while (originalIndex < originalLines.length) {
+    result.push(originalLines[originalIndex]);
+    originalIndex += 1;
+  }
+
+  return result.join('\n');
+}
+
+async function requestNextPatch() {
+  const thinkingEl = startThinking('Generating next patch...');
+  try {
+    const patch = await callPatchEndpoint();
+
+    if (patch.done) {
+      showToast('All patches completed.', 'success');
+      state.highModeActive = false;
+      return;
+    }
+
+    const currentMarkdown = mdEditor ? mdEditor.getValue() : '';
+    const currentCss = cssEditor ? cssEditor.getValue() : '';
+
+    const nextMarkdown = patch.markdown_patch
+      ? applyPatchToText(currentMarkdown, patch.markdown_patch)
+      : currentMarkdown;
+    const nextCss = patch.css_patch
+      ? applyPatchToText(currentCss, patch.css_patch)
+      : currentCss;
+
+    if (patch.markdown_patch && nextMarkdown === currentMarkdown) {
+      showToast('Patch was skipped because it was too large or invalid. Try a more targeted request.', 'warn');
+    }
+
+    stageChange({
+      assistantMessage: patch.explanation || 'Proposed patch.',
+      currentMarkdown,
+      proposedMarkdown: nextMarkdown,
+      cssText: nextCss,
+    });
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+    state.highModeActive = false;
+  } finally {
+    finishThinking(thinkingEl);
+  }
+}
+
 async function loadMarkdownFromFile(file) {
   if (!file) return;
   const name = file.name || '';
   if (!name.toLowerCase().endsWith('.md') && !file.type.includes('markdown')) {
-    pushMessage('assistant', 'Please upload a markdown (.md) file.');
+    showToast('Please upload a markdown (.md) file.', 'warn');
     cvUploadInputEl.value = '';
     return;
   }
@@ -627,9 +730,9 @@ async function loadMarkdownFromFile(file) {
     state.history = [];
     state.pendingChange = null;
     closeDiffModal();
-    pushMessage('assistant', `Loaded ${name} into the editor. You can now ask for edits.`);
+    showToast(`Loaded ${name} into the editor. You can now ask for edits.`, 'success');
   } catch {
-    pushMessage('assistant', 'Failed to read the uploaded file. Please try again.');
+    showToast('Failed to read the uploaded file. Please try again.', 'error');
   } finally {
     cvUploadInputEl.value = '';
   }
@@ -768,18 +871,26 @@ chatFormEl.addEventListener('submit', async (e) => {
   if (state.isLoading) return;
 
   if (state.pendingChange) {
-    pushMessage('assistant', 'Please Accept or Reject the current diff before requesting another change.');
+    showToast('Please Accept or Reject the current diff before requesting another change.', 'warn');
     return;
   }
 
   const userText = chatInputEl.value.trim();
   if (!userText) return;
 
+  state.lastUserRequest = userText;
+
   const currentMarkdown = mdEditor ? mdEditor.getValue() : '';
 
   pushMessage('user', userText);
   addHistory('user', userText);
   chatInputEl.value = '';
+
+  if (state.involvement === 'high') {
+    state.highModeActive = true;
+    await requestNextPatch();
+    return;
+  }
 
   const thinkingEl = startThinking();
   const liveAssistantEl = pushMessage('assistant', '', 'live');
@@ -808,11 +919,10 @@ chatFormEl.addEventListener('submit', async (e) => {
       applyCustomCss();
     }
   } catch (error) {
-    if (!liveAssistantEl.textContent.trim()) {
-      liveAssistantEl.textContent = `Error: ${error.message}`;
-    } else {
-      pushMessage('assistant', `Error: ${error.message}`);
+    if (liveAssistantEl.parentNode) {
+      liveAssistantEl.parentNode.removeChild(liveAssistantEl);
     }
+    showToast(`Error: ${error.message}`, 'error');
   } finally {
     finishThinking(thinkingEl);
   }
@@ -876,7 +986,7 @@ loadTemplateBtn.addEventListener('click', () => {
     mdEditor.setValue(starterMarkdown);
   }
   renderMarkdown();
-  pushMessage('assistant', 'Loaded a markdown CV template. Ask me to tailor it to a job posting.');
+  showToast('Loaded a markdown CV template. Ask me to tailor it to a job posting.', 'success');
 });
 
 clearBtn.addEventListener('click', () => {
@@ -894,22 +1004,22 @@ clearBtn.addEventListener('click', () => {
   state.history = [];
   state.pendingChange = null;
   closeDiffModal();
-  pushMessage('assistant', 'Cleared editor and chat memory for a fresh start.');
+  showToast('Cleared editor and chat memory for a fresh start.', 'warn');
 });
 
 copyMdBtn.addEventListener('click', async () => {
   try {
     const mdText = mdEditor ? mdEditor.getValue() : '';
     await navigator.clipboard.writeText(mdText);
-    pushMessage('assistant', 'Markdown copied to clipboard.');
+    showToast('Markdown copied to clipboard.', 'success');
   } catch {
-    pushMessage('assistant', 'Clipboard copy failed. You can still copy directly from the editor.');
+    showToast('Clipboard copy failed. You can still copy directly from the editor.', 'error');
   }
 });
 
 exportPdfBtn.addEventListener('click', () => {
   openPrintWindow();
-  pushMessage('assistant', 'Use the print dialog to Save as PDF for selectable text.');
+  showToast('Use the print dialog to Save as PDF for selectable text.', 'info');
 });
 
 tabButtons.forEach((button) => {
@@ -944,3 +1054,13 @@ tabButtons.forEach((button) => {
     'Paste your OpenAI API key and optional master data context, then ask me to tailor your CV. I will stream rationale live and propose diffed markdown changes.'
   );
 })();
+
+
+
+
+
+
+
+
+
+

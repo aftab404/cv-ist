@@ -57,6 +57,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  height: 100%;
 }
 
 .panel-head {
@@ -137,12 +138,14 @@ body {
 }
 
 .editor-panel {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   height: 100%;
 }
 
 .editor-stack {
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -150,7 +153,9 @@ body {
 }
 
 .editor-surface {
-  flex: 1;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   background: transparent;
   color: var(--ink);
@@ -162,7 +167,9 @@ body {
 }
 
 .CodeMirror {
-  height: 100%;
+  flex: 1 1 0;
+  height: 100% !important;
+  width: 100%;
   background: #fffef9;
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.86rem;
@@ -170,7 +177,7 @@ body {
 }
 
 .CodeMirror-scroll {
-  height: 100%;
+  height: 100% !important;
 }
 
 .CodeMirror-gutters {
@@ -486,5 +493,54 @@ body {
   .diff-card,
   .settings-card {
     max-height: 90vh;
+  }
+}
+.toast-stack {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  z-index: 70;
+  max-width: min(360px, 92vw);
+}
+
+.toast {
+  background: #fffef9;
+  border: 1px solid #c9c6b7;
+  border-left: 4px solid var(--brand);
+  box-shadow: var(--shadow);
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #263326;
+  animation: toast-in 140ms ease;
+}
+
+.toast.success {
+  border-left-color: #216e4d;
+  background: #f4fbf6;
+}
+
+.toast.warn {
+  border-left-color: #916323;
+  background: #fff8ef;
+}
+
+.toast.error {
+  border-left-color: #7a1f26;
+  background: #fff4f5;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

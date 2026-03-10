@@ -35,6 +35,28 @@ Rules:
   - css: string (updated stylesheet, unchanged if not editing styles)
 - If no changes are needed, return the input markdown and css unchanged.`;
 
+const PATCH_SYSTEM_PROMPT = `You are an expert CV editor. Produce one small patch at a time.
+
+Rules:
+- Propose only a single, small, focused patch per response.
+- Patch must be scoped to the specific section the user asked about (e.g., Projects section only).
+- Never delete or replace the entire CV when a targeted edit is requested.
+- Use 2-5 lines of surrounding context in the patch so it can be applied precisely.
+- Provide a short explanation of why this patch helps.
+- Output JSON with:
+  explanation: string
+  markdown_patch: string
+  css_patch: string
+  done: boolean
+
+Patch format:
+- Always return a minimal unified diff with @@ hunks for markdown changes.
+- If no markdown change for this patch, return an empty string.
+- If patching CSS, return a minimal unified diff, else empty string.
+- When no more changes are needed, set done=true and patches empty.
+
+Use the user's request and master data to decide the next patch.`;
+
 function buildSharedContext({ message, markdown, css, html, history, masterData }) {
   return [
     'Master data context:',
@@ -169,6 +191,76 @@ app.post('/api/chat/stream', async (req, res) => {
   }
 });
 
+app.post('/api/chat/patch', async (req, res) => {
+  const { apiKey, message, markdown, css, html, history, masterData, model } = req.body || {};
+
+  if (!apiKey || typeof apiKey !== 'string') {
+    return res.status(400).json({ error: 'Missing API key.' });
+  }
+
+  if (!message || typeof message !== 'string') {
+    return res.status(400).json({ error: 'Missing user message.' });
+  }
+
+  try {
+    const client = new OpenAI({ apiKey });
+    const safeModel = model || 'gpt-4.1-mini';
+    const context = buildSharedContext({
+      message,
+      markdown: typeof markdown === 'string' ? markdown : '',
+      css: typeof css === 'string' ? css : '',
+      html: typeof html === 'string' ? html : '',
+      history: Array.isArray(history) ? history.slice(-12) : [],
+      masterData: typeof masterData === 'string' ? masterData : '',
+    });
+
+    const patchResponse = await client.responses.create({
+      model: safeModel,
+      instructions: PATCH_SYSTEM_PROMPT,
+      input: [
+        {
+          role: 'user',
+          content: [{ type: 'input_text', text: context }],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'cv_patch_step',
+          strict: true,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              explanation: { type: 'string' },
+              markdown_patch: { type: 'string' },
+              css_patch: { type: 'string' },
+              done: { type: 'boolean' },
+            },
+            required: ['explanation', 'markdown_patch', 'css_patch', 'done'],
+          },
+        },
+      },
+    });
+
+    const raw = patchResponse.output_text || '{}';
+    let parsed;
+
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return res.status(502).json({ error: 'Model returned invalid patch JSON.' });
+    }
+
+    return res.json(parsed);
+  } catch (error) {
+    const status = error?.status || 500;
+    const message = error?.error?.message || error?.message || 'Unknown server error';
+    return res.status(status).json({ error: message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`CV Markdown Studio running on http://localhost:${port}`);
 });
+
